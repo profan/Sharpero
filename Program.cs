@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -35,19 +36,8 @@ Console.WriteLine($"Sharpero took: {timeTakenSecondsOutput} seconds to write out
 
 void CreateOutputImage(int imageSize, float[] imageData, string imageOutputPath)
 {
-    // #TODO: remove bitmap usage as this draws through a canvas every time, can we just set the pixel data directly?
-    using SKBitmap bitmap = new SKBitmap(imageSize, imageSize, isOpaque: true);
-    for (int x = 0; x < imageSize; ++x)
-    {
-        for (int y = 0; y < imageSize; ++y)
-        {
-            byte v = imageData[Parsing.CoordToIndex(x, y, width: imageSize)] < 0 ? (byte)255 : (byte)0;
-            SKColor c = new SKColor(v, v, v, 255);
-            bitmap.SetPixel(x, y, c); 
-        }
-    }
-
-    using var image = SKImage.FromBitmap(bitmap);
+    byte[] imageDataBytes = imageData.Select(p => (byte)(p < 0 ? 255 : 0)).ToArray();
+    using var image = SKImage.FromPixelCopy(new SKImageInfo(imageSize, imageSize, SKColorType.Gray8), imageDataBytes);
     using var data = image.Encode(SKEncodedImageFormat.Jpeg, 100);
     using var stream = File.OpenWrite(imageOutputPath);
     data.SaveTo(stream);
