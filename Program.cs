@@ -54,9 +54,10 @@ void CreateOutputImage(int imageSize, float[] imageData, string imageOutputPath)
 }
 
 enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
-readonly record struct Instruction(int Out, OpCode OpCode, int A = -1, int B = -1, float V = float.MaxValue);
 
-static class Parsing
+internal readonly record struct Instruction(int Out, OpCode OpCode, int A = -1, int B = -1, float V = float.MaxValue);
+
+internal static class Parsing
 {
 
     // 1D <-> 2D coordinate helpers for square grids
@@ -99,7 +100,7 @@ static class Parsing
 }
 
 
-static class Compiler
+internal static class Compiler
 {
     static (AssemblyBuilder, MethodBuilder, TypeBuilder) CreateDynamicAssemblyWithMethodBuilder(string assemblyName,
         string moduleName, string typeName, string methodName)
@@ -139,7 +140,7 @@ static class Compiler
     }
 }
 
-static class Interpreter
+internal static class Interpreter
 {
     public static float[] Evaluate(Instruction[] instructions, int imageSize)
     {
