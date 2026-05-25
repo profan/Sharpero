@@ -53,7 +53,7 @@ void CreateOutputImage(int imageSize, float[] imageData, string imageOutputPath)
     data.SaveTo(stream);
 }
 
-enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
+internal enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
 
 internal readonly record struct Instruction(int Out, OpCode OpCode, int A = -1, int B = -1, float V = float.MaxValue);
 
@@ -98,7 +98,6 @@ internal static class Parsing
         return instructions.ToArray();
     }   
 }
-
 
 internal static class Compiler
 {
