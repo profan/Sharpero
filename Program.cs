@@ -7,6 +7,7 @@ using System.Linq;
 using System.Numerics;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using SkiaSharp;
 
@@ -43,21 +44,7 @@ void CreateOutputImage(int imageSize, float[] imageData, string imageOutputPath)
     data.SaveTo(stream);
 }
 
-enum OpCode
-{
-    VarX,
-    VarY,
-    Const,
-    Add,
-    Sub,
-    Mul,
-    Max,
-    Min,
-    Neg,
-    Square,
-    Sqrt
-}
-
+enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
 readonly record struct Instruction(int Out, OpCode OpCode, int A = -1, int B = -1, float V = float.MaxValue);
 
 static class Parsing
@@ -179,8 +166,10 @@ static class Interpreter
         return result;
     }
 
+    [SkipLocalsInit]
     public static Vector<float> Evaluate(Instruction[] instructions, Vector<float> xs, Vector<float> ys)
     {
+        // #TODO: this construction is just a little bit unhinged lol
         Span<Vector<float>> variables = stackalloc Vector<float>[instructions.Length];
 
         foreach (ref Instruction instruction in instructions.AsSpan())
