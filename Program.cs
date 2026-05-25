@@ -12,21 +12,30 @@ using System.Threading.Tasks;
 using SkiaSharp;
 
 int currentImageSize = 1024;
-(float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
-{
-    Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
-    return Interpreter.Evaluate(instructions, imageSize: currentImageSize);
-});
+string combinedOutputString = string.Empty;
 
-Console.WriteLine($"Sharpero took: {timeTakenSecondsEvaluate} seconds to evaluate {currentImageSize}x{currentImageSize} image!");
-
-(bool success, double timeTakenSecondsOutput) = BenchmarkFunction(() =>
+(bool success, double totalTimeTakenSecondsOutput) = BenchmarkFunction(() =>
 {
-    CreateOutputImage(currentImageSize, result, "prospero.jpg");
+    (float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
+    {
+        Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
+        return Interpreter.Evaluate(instructions, imageSize: currentImageSize);
+    });
+
+    combinedOutputString += $" - took: {timeTakenSecondsEvaluate} seconds to evaluate the image!" + Environment.NewLine;
+
+    (bool success, double timeTakenSecondsOutput) = BenchmarkFunction(() =>
+    {
+        CreateOutputImage(currentImageSize, result, "prospero.jpg");
+        return true;
+    });
+
+    combinedOutputString += $" - took: {timeTakenSecondsOutput} seconds to write out image!" + Environment.NewLine;
+
     return true;
 });
 
-Console.WriteLine($"Sharpero took: {timeTakenSecondsOutput} seconds to write out {currentImageSize}x{currentImageSize} image!");
+Console.Write($"Sharpero took: {totalTimeTakenSecondsOutput} seconds to evaluate {currentImageSize}x{currentImageSize} image!" + Environment.NewLine + combinedOutputString);
 
 (T, double) BenchmarkFunction<T>(Func<T> benchmarkedFunction)
 {
