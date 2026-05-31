@@ -8,6 +8,7 @@ using System.Numerics;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using SkiaSharp;
 
@@ -55,7 +56,48 @@ void CreateOutputImage(int imageSize, float[] imageData, string imageOutputPath)
 
 internal enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
 
-internal readonly record struct Instruction(int Out, OpCode OpCode, int A = -1, int B = -1, float V = float.MaxValue);
+internal readonly record struct Operand
+{
+    private readonly int _value = -1;
+
+    public bool IsConstant => ((_value >> 31) & 1) != 0;
+    public int Value => _value & 0x7FFFFFFF;
+    
+    public Operand(int value, bool isConstant = false)
+    {
+        _value = (isConstant ? 1 : 0) << 31 | value & 0x7FFFFFFF;
+    }
+
+    public static implicit operator int(Operand o) => o.Value;
+    public override string ToString() => $"{Value} (constant: {IsConstant.ToString().ToLower()})";
+}
+
+internal readonly record struct Instruction(
+    Operand Out,
+    OpCode OpCode,
+    Operand A = default,
+    Operand B = default,
+    float C = 0.0f)
+{
+    public override string ToString()
+    {
+        return OpCode switch
+        {
+            OpCode.VarX => $"_{Out} var-x",
+            OpCode.VarY => $"_{Out} var-y",
+            OpCode.Const => $"_{Out} const",
+            OpCode.Add => $"_{Out} add {A} {B}",
+            OpCode.Sub => $"_{Out} sub {A} {B}",
+            OpCode.Mul => $"_{Out} mul {A} {B}",
+            OpCode.Max => $"_{Out} max {A} {B}",
+            OpCode.Min => $"_{Out} min {A} {B}",
+            OpCode.Neg => $"_{Out} neg {A}",
+            OpCode.Square => $"_{Out} square {A}",
+            OpCode.Sqrt => $"_{Out} sqrt {A}",
+            _ => string.Empty
+        };
+    }
+}
 
 internal static class Parsing
 {
@@ -64,28 +106,64 @@ internal static class Parsing
     public static (int x, int y) IndexToCoord(int idx, int width) => (idx % width, idx / width);
     public static int CoordToIndex(int x, int y, int width) => x + (y * width);
 
-    // the identifiers are hexadecimal, stripping off the leading _ is enough :)
-    public static int ParseIdentifier(string id) => Convert.ToInt32(id[1..], 16);
-    
+    // the identifiers are hexadecimal, stripping off the leading _ is enough :),
+    public static Operand ParseIdentifier(Dictionary<string, Operand> identifiers, string id, bool isConstant = false)
+    {
+        if (identifiers.TryGetValue(id, out var value))
+        {
+            return value;
+        }
+
+        return identifiers[id] = new Operand(Convert.ToInt32(id[1..], 16), isConstant);
+    }
+
     public static Instruction[] Parse(string filename)
     {
+        var identifiers = new Dictionary<string, Operand>();
+        foreach (string line in File.ReadAllLines(filename))
+        {
+            switch (line.Split(" "))
+            {
+                case [{ } @out, "const", not null]:
+                    ParseIdentifier(identifiers, @out, isConstant: true);
+                    break;
+                case [{ } @out, not null, { } a, { } b]:
+                    ParseIdentifier(identifiers, @out);
+                    ParseIdentifier(identifiers, a);
+                    ParseIdentifier(identifiers, b);
+                    break;
+                case [{ } @out, not null, { } a]:
+                    ParseIdentifier(identifiers, @out);
+                    ParseIdentifier(identifiers, a);
+                    break;
+                case [{ } @out, not null]:
+                    ParseIdentifier(identifiers, @out);
+                    break;
+            }
+        }
+
         List<Instruction> instructions = [];
-        
         foreach (string line in File.ReadAllLines(filename))
         {
             Instruction? parsedInstruction = line.Split(" ") switch
             {
-                [{ } @out, "var-x"] => new Instruction(ParseIdentifier(@out), OpCode.VarX),
-                [{ } @out, "var-y"] => new Instruction(ParseIdentifier(@out), OpCode.VarY),
-                [{ } @out, "const", {} v] => new Instruction(ParseIdentifier(@out), OpCode.Const, V: float.Parse(v, CultureInfo.InvariantCulture)),
-                [{ } @out, "add", { } a, { } b] => new Instruction(ParseIdentifier(@out), OpCode.Add, ParseIdentifier(a), ParseIdentifier(b)),
-                [{ } @out, "sub", { } a, { } b] => new Instruction(ParseIdentifier(@out), OpCode.Sub, ParseIdentifier(a), ParseIdentifier(b)),
-                [{ } @out, "mul", { } a, { } b] => new Instruction(ParseIdentifier(@out), OpCode.Mul, ParseIdentifier(a), ParseIdentifier(b)),
-                [{ } @out, "max", { } a, { } b] => new Instruction(ParseIdentifier(@out), OpCode.Max, ParseIdentifier(a), ParseIdentifier(b)),
-                [{ } @out, "min", { } a, { } b] => new Instruction(ParseIdentifier(@out), OpCode.Min, ParseIdentifier(a), ParseIdentifier(b)),
-                [{ } @out, "neg", { } a] => new Instruction(ParseIdentifier(@out), OpCode.Neg, ParseIdentifier(a)),
-                [{ } @out, "square", { } a] => new Instruction(ParseIdentifier(@out), OpCode.Square, ParseIdentifier(a)),
-                [{ } @out, "sqrt", { } a] => new Instruction(ParseIdentifier(@out), OpCode.Sqrt, ParseIdentifier(a)),
+                [{ } @out, "var-x"] => new Instruction(identifiers[@out], OpCode.VarX),
+                [{ } @out, "var-y"] => new Instruction(identifiers[@out], OpCode.VarY),
+                [{ } @out, "const", { } v] => new Instruction(identifiers[@out], OpCode.Const,
+                    C: float.Parse(v, CultureInfo.InvariantCulture)),
+                [{ } @out, "add", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Add, identifiers[a],
+                    identifiers[b]),
+                [{ } @out, "sub", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Sub, identifiers[a],
+                    identifiers[b]),
+                [{ } @out, "mul", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Mul, identifiers[a],
+                    identifiers[b]),
+                [{ } @out, "max", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Max, identifiers[a],
+                    identifiers[b]),
+                [{ } @out, "min", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Min, identifiers[a],
+                    identifiers[b]),
+                [{ } @out, "neg", { } a] => new Instruction(identifiers[@out], OpCode.Neg, identifiers[a]),
+                [{ } @out, "square", { } a] => new Instruction(identifiers[@out], OpCode.Square, identifiers[a]),
+                [{ } @out, "sqrt", { } a] => new Instruction(identifiers[@out], OpCode.Sqrt, identifiers[a]),
                 _ => null
             };
 
@@ -93,6 +171,91 @@ internal static class Parsing
             {
                 instructions.Add(instruction);
             }
+        }
+
+        float EvaluateExpression(OpCode opCode, float a, float b)
+        {
+            return opCode switch
+            {
+                OpCode.Add => a + b,
+                OpCode.Sub => a - b,
+                OpCode.Mul => a * b,
+                _ => 0.0f
+            };
+        }
+
+        bool shouldEliminateConstants = false;
+
+        if (shouldEliminateConstants)
+        {
+            // handle constant propagation, eliminating all constants from the instruction stream and merging them
+            foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
+            {
+                switch (instruction.OpCode)
+                {
+                    case (OpCode.Add or OpCode.Sub or OpCode.Mul) when instruction.A.IsConstant || instruction.B.IsConstant:
+                    {
+                        instruction = instruction switch
+                        {
+                            { A.IsConstant: true, B.IsConstant: false } => instruction with
+                            {
+                                C = instructions[instruction.A].C
+                            },
+                            { A.IsConstant: false, B.IsConstant: true } => instruction with
+                            {
+                                C = instructions[instruction.B].C
+                            },
+                            { A.IsConstant: true, B.IsConstant: true } => instruction with
+                            {
+                                C = EvaluateExpression(instruction.OpCode, instructions[instruction.A].C,
+                                    instructions[instruction.B].C)
+                            },
+                            { A.IsConstant: false, B.IsConstant: false } => instruction
+                        };
+                        break;
+                    }
+                }
+            }
+
+            foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
+            {
+                switch (instruction.OpCode)
+                {
+                    case OpCode.Const:
+                        int offset = instruction.Out;
+                        foreach (ref Instruction otherInstruction in CollectionsMarshal.AsSpan(instructions))
+                        {
+                            if (otherInstruction.Out >= offset)
+                            {
+                                otherInstruction = otherInstruction with { Out = new Operand(otherInstruction.Out - 1) };
+                            }
+
+                            if (otherInstruction.A >= offset)
+                            {
+                                otherInstruction = otherInstruction with
+                                {
+                                    A = new Operand(otherInstruction.A - 1, isConstant: otherInstruction.A.IsConstant)
+                                };
+                            }
+
+                            if (otherInstruction.B >= offset)
+                            {
+                                otherInstruction = otherInstruction with
+                                {
+                                    B = new Operand(otherInstruction.B - 1, otherInstruction.B.IsConstant)
+                                };
+                            }
+                        }
+
+                        break;
+                }
+            }
+
+
+            // eliminate all constants now :)
+            int totalNumberOfInstructions = instructions.Count;
+            int numberOfRemovedInstructions = instructions.RemoveAll(i => i.OpCode == OpCode.Const);
+            Console.WriteLine($"Sharpero eliminated {numberOfRemovedInstructions} constants from tape, {(float)numberOfRemovedInstructions / totalNumberOfInstructions * 100.0f:0.0} % of total");
         }
 
         return instructions.ToArray();
@@ -187,15 +350,26 @@ internal static class Interpreter
             {
                 { OpCode: OpCode.VarX } => xs,
                 { OpCode: OpCode.VarY } => ys,
-                { OpCode: OpCode.Add, A: var a, B: var b } => variables[a] + variables[b],
-                { OpCode: OpCode.Sub, A: var a, B: var b } => variables[a] - variables[b],
-                { OpCode: OpCode.Mul, A: var a, B: var b } => variables[a] * variables[b],
+                
+                { OpCode: OpCode.Add, A: { IsConstant: false } a, B: { IsConstant: false } b } => variables[a] + variables[b],
+                { OpCode: OpCode.Add, A.IsConstant: true, B: { IsConstant: false } b } => new Vector<float>(instruction.C) + variables[b],
+                { OpCode: OpCode.Add, A: { IsConstant: false } a, B.IsConstant: true } => variables[a] + new Vector<float>(instruction.C),
+                
+                { OpCode: OpCode.Sub, A: { IsConstant: false } a, B: { IsConstant: false } b } => variables[a] - variables[b],
+                { OpCode: OpCode.Sub, A.IsConstant: true, B: { IsConstant: false } b } => new Vector<float>(instruction.C) - variables[b],
+                { OpCode: OpCode.Sub, A: { IsConstant: false } a, B.IsConstant: true } => variables[a] - new Vector<float>(instruction.C),
+                
+                { OpCode: OpCode.Mul, A: { IsConstant: false } a, B: { IsConstant: false } b } => variables[a] * variables[b],
+                { OpCode: OpCode.Mul, A.IsConstant: true, B: { IsConstant: false } b } => new Vector<float>(instruction.C) * variables[b],
+                { OpCode: OpCode.Mul, A: { IsConstant: false } a, B.IsConstant: true } => variables[a] * new Vector<float>(instruction.C),
+                
                 { OpCode: OpCode.Max, A: var a, B: var b } => Vector.Max(variables[a], variables[b]),
                 { OpCode: OpCode.Min, A: var a, B: var b } => Vector.Min(variables[a], variables[b]),
                 { OpCode: OpCode.Neg, A: var a } => -variables[a],
                 { OpCode: OpCode.Sqrt, A: var a } => Vector.SquareRoot(variables[a]),
                 { OpCode: OpCode.Square, A: var a } => variables[a] * variables[a],
-                { OpCode: OpCode.Const, V: var v } => Vector<float>.One * v,
+                
+                { OpCode: OpCode.Const, C: var v } => Vector<float>.One * v,
                 _ => variables[instruction.Out]
             };
         }
