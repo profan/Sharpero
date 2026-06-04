@@ -13,6 +13,8 @@ using SkiaSharp;
 
 Main();
 
+const string programsProsperoVm = "Programs/prospero.vm";
+
 // STAThread is required if you deploy using NativeAOT on Windows
 // See https://github.com/raylib-cs/raylib-cs/issues/301
 [STAThread]
@@ -30,7 +32,7 @@ void Main()
 
         void main()
         {
-            float v = texture(texture0, fragTexCoord).r< 0 ? 1.0 : 0.0;
+            float v = texture(texture0, fragTexCoord).r < 0 ? 1.0 : 0.0;
             outputColor = vec4(v, v, v, 1.0f) * fragColor;
         }
     """;
@@ -58,7 +60,11 @@ void Main()
             currentOutputTexture = Raylib.LoadTextureFromImage(currentOutputImage);
         }
     }
+    
+    bool shouldUseParallelism = true;
+    bool shouldUseSimd = true;
 
+    bool isEvaluating = false;
     bool shouldEvaluate = false;
     bool shouldCancelUpdateTexture = false;
     bool shouldUpdateTexture = false;
@@ -69,17 +75,20 @@ void Main()
         
         Raylib.ClearBackground(Color.White);
 
-        if (shouldEvaluate)
+        if (shouldEvaluate & !isEvaluating)
         {
             shouldUpdateTexture = true;
             currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
+
+            InterpreterOptions interpreterOptions = (shouldUseParallelism ? InterpreterOptions.Parallelism : default);
             
             Task.Run(() =>
             {
-                Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
-                Interpreter.Evaluate(instructions, imageSize: currentOutputImageSize, currentOutputImageData);
+                Instruction[] instructions = Parsing.Parse(programsProsperoVm);
+                Interpreter.Evaluate(instructions, imageSize: currentOutputImageSize, interpreterOptions, currentOutputImageData);
                 Raylib.UpdateTexture(currentOutputTexture, currentOutputImageData);
                 shouldCancelUpdateTexture = true;
+                isEvaluating = false;
             });
             
             shouldEvaluate = false;
@@ -100,6 +109,7 @@ void Main()
         Raylib.EndShaderMode();
         
         Raylib.DrawText("Sharpero (press R to evaluate, O to output to file)", 12, 12, 20, Color.White);
+        Raylib.DrawText($" - parallelism {(shouldUseParallelism ? "enabled" : "disabled")} (P to toggle)", 12, 32, 20, Color.White);
 
         if (Raylib.IsKeyPressed(KeyboardKey.R))
         {
@@ -112,6 +122,11 @@ void Main()
             {
                 GenerateOutputImage(currentImageSize: currentOutputImageSize, shouldWriteOutputImage: true);
             });
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.P))
+        {
+            shouldUseParallelism = !shouldUseParallelism;
         }
 
         Raylib.EndDrawing();
@@ -130,7 +145,7 @@ float[] GenerateOutputImage(int currentImageSize, bool shouldWriteOutputImage = 
     {
         (float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
         {
-            Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
+            Instruction[] instructions = Parsing.Parse(programsProsperoVm);
             return Interpreter.Evaluate(instructions, imageSize: currentImageSize);
         });
 
@@ -378,14 +393,25 @@ internal static class Parsing
     }   
 }
 
+[Flags]
+internal enum InterpreterOptions
+{
+    Parallelism = 0x1
+}
+
 internal static class Interpreter
 {
-    public static float[] Evaluate(Instruction[] instructions, int imageSize, float[]? result = null)
+    public static float[] Evaluate(Instruction[] instructions, int imageSize, InterpreterOptions options = default, float[]? result = null)
     {
         result ??= new float[imageSize * imageSize];
 
+        ParallelOptions parallelOptions = new ParallelOptions()
+        {
+            MaxDegreeOfParallelism = (options & InterpreterOptions.Parallelism) != 0 ? -1 : 1
+        };
+
         int chunkSize = Vector<float>.Count;
-        Parallel.For(0, (imageSize * imageSize) / chunkSize, chunkIdx =>
+        Parallel.For(0, (imageSize * imageSize) / chunkSize, parallelOptions, chunkIdx =>
         {
             Span<float> xs = stackalloc float[chunkSize];
             Span<float> ys = stackalloc float[chunkSize];
