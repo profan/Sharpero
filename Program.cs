@@ -60,9 +60,9 @@ void Main()
             currentOutputTexture = Raylib.LoadTextureFromImage(currentOutputImage);
         }
     }
-    
+   
+    // options??
     bool shouldUseParallelism = true;
-    bool shouldUseSimd = true;
 
     bool isEvaluating = false;
     bool shouldEvaluate = false;
@@ -75,16 +75,21 @@ void Main()
         
         Raylib.ClearBackground(Color.White);
 
-        if (shouldEvaluate & !isEvaluating)
+        if (shouldEvaluate && isEvaluating)
         {
-            shouldUpdateTexture = true;
-            currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
+            shouldEvaluate = false;
+        }
 
+        if (shouldEvaluate && !isEvaluating)
+        {
+            isEvaluating = true;
+            shouldUpdateTexture = true;
             InterpreterOptions interpreterOptions = (shouldUseParallelism ? InterpreterOptions.Parallelism : default);
             
             Task.Run(() =>
             {
                 Instruction[] instructions = Parsing.Parse(programsProsperoVm);
+                currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
                 Interpreter.Evaluate(instructions, imageSize: currentOutputImageSize, interpreterOptions, currentOutputImageData);
                 Raylib.UpdateTexture(currentOutputTexture, currentOutputImageData);
                 shouldCancelUpdateTexture = true;
