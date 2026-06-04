@@ -32,7 +32,7 @@ void Main()
 
         void main()
         {
-            float v = texture(texture0, fragTexCoord).r < 0 ? 1.0 : 0.0;
+            float v = texture(texture0, fragTexCoord).r< 0 ? 1.0 : 0.0;
             outputColor = vec4(v, v, v, 1.0f) * fragColor;
         }
     """;
