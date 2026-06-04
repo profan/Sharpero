@@ -5,53 +5,170 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
-using System.Reflection;
-using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Raylib_cs;
 using SkiaSharp;
 
-int currentImageSize = 1024;
-string combinedOutputString = string.Empty;
+Main();
 
-(bool success, double totalTimeTakenSecondsOutput) = BenchmarkFunction(() =>
+// STAThread is required if you deploy using NativeAOT on Windows
+// See https://github.com/raylib-cs/raylib-cs/issues/301
+[STAThread]
+void Main()
 {
-    (float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
+    string fragmentShader = """
+        #version 330
+
+        in vec2 fragTexCoord;
+        in vec4 fragColor;
+
+        uniform sampler2D texture0;
+
+        out vec4 outputColor;
+
+        void main()
+        {
+            float v = texture(texture0, fragTexCoord).r< 0 ? 1.0 : 0.0;
+            outputColor = vec4(v, v, v, 1.0f) * fragColor;
+        }
+    """;
+    
+    int currentOutputImageSize = 1024;
+    Raylib.InitWindow(currentOutputImageSize, currentOutputImageSize, "Sharpero");
+
+    Texture2D currentOutputTexture;
+    Shader currentShader = Raylib.LoadShaderFromMemory(null, fragmentShader);
+    float[] currentOutputImageData = new float[currentOutputImageSize * currentOutputImageSize];
+    
+    unsafe
     {
-        Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
-        return Interpreter.Evaluate(instructions, imageSize: currentImageSize);
-    });
+        fixed (float* currentOutputImageDataPtr = currentOutputImageData)
+        {
+            Image currentOutputImage = new Image()
+            {
+                Format = PixelFormat.UncompressedR32,
+                Data = currentOutputImageDataPtr,
+                Width = currentOutputImageSize,
+                Height = currentOutputImageSize,
+                Mipmaps = 1
+            };
+        
+            currentOutputTexture = Raylib.LoadTextureFromImage(currentOutputImage);
+        }
+    }
 
-    combinedOutputString += $" - took: {timeTakenSecondsEvaluate} seconds to evaluate the image!" + Environment.NewLine;
+    bool shouldEvaluate = false;
+    bool shouldCancelUpdateTexture = false;
+    bool shouldUpdateTexture = false;
 
-    (bool success, double timeTakenSecondsOutput) = BenchmarkFunction(() =>
+    while (!Raylib.WindowShouldClose()) 
     {
-        CreateOutputImage(currentImageSize, result, "prospero.jpg");
-        return true;
-    });
+        Raylib.BeginDrawing();
+        
+        Raylib.ClearBackground(Color.White);
 
-    combinedOutputString += $" - took: {timeTakenSecondsOutput} seconds to write out image!" + Environment.NewLine;
+        if (shouldEvaluate)
+        {
+            shouldUpdateTexture = true;
+            currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
+            
+            Task.Run(() =>
+            {
+                Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
+                Interpreter.Evaluate(instructions, imageSize: currentOutputImageSize, currentOutputImageData);
+                Raylib.UpdateTexture(currentOutputTexture, currentOutputImageData);
+                shouldCancelUpdateTexture = true;
+            });
+            
+            shouldEvaluate = false;
+        }
 
-    return true;
-});
+        if (shouldUpdateTexture)
+        {
+            Raylib.UpdateTexture(currentOutputTexture, currentOutputImageData);
+            if (shouldCancelUpdateTexture)
+            {
+                shouldCancelUpdateTexture = false;
+                shouldUpdateTexture = false;
+            }
+        }
+        
+        Raylib.BeginShaderMode(currentShader);
+            Raylib.DrawTexture(currentOutputTexture, 0, 0, Color.White);
+        Raylib.EndShaderMode();
+        
+        Raylib.DrawText("Sharpero (press R to evaluate, O to output to file)", 12, 12, 20, Color.White);
 
-Console.Write($"Sharpero took: {totalTimeTakenSecondsOutput} seconds to evaluate {currentImageSize}x{currentImageSize} image!" + Environment.NewLine + combinedOutputString);
+        if (Raylib.IsKeyPressed(KeyboardKey.R))
+        {
+            shouldEvaluate = true;
+        }
 
-(T, double) BenchmarkFunction<T>(Func<T> benchmarkedFunction)
-{
-    var sw = Stopwatch.StartNew();
-    T benchmarkedResult = benchmarkedFunction();
-    return (benchmarkedResult, sw.Elapsed.TotalSeconds);
+        if (Raylib.IsKeyPressed(KeyboardKey.O))
+        {
+            Task.Run(() =>
+            {
+                GenerateOutputImage(currentImageSize: currentOutputImageSize, shouldWriteOutputImage: true);
+            });
+        }
+
+        Raylib.EndDrawing();
+    } 
+    
+    Raylib.UnloadShader(currentShader);
+    Raylib.UnloadTexture(currentOutputTexture);
+    Raylib.CloseWindow();
 }
 
-void CreateOutputImage(int imageSize, float[] imageData, string imageOutputPath)
+float[] GenerateOutputImage(int currentImageSize, bool shouldWriteOutputImage = false)
 {
-    byte[] imageDataBytes = imageData.Select(p => (byte)(p < 0 ? 255 : 0)).ToArray();
-    using var image = SKImage.FromPixelCopy(new SKImageInfo(imageSize, imageSize, SKColorType.Gray8), imageDataBytes);
-    using var data = image.Encode(SKEncodedImageFormat.Jpeg, 100);
-    using var stream = File.OpenWrite(imageOutputPath);
-    data.SaveTo(stream);
+    string combinedOutputString = string.Empty;
+
+    (float[] result, double totalTimeTakenSecondsOutput) = BenchmarkFunction(() =>
+    {
+        (float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
+        {
+            Instruction[] instructions = Parsing.Parse("Programs/prospero.vm");
+            return Interpreter.Evaluate(instructions, imageSize: currentImageSize);
+        });
+
+        combinedOutputString += $" - took: {timeTakenSecondsEvaluate} seconds to evaluate the image!" + Environment.NewLine;
+
+        if (shouldWriteOutputImage)
+        {
+            (bool success, double timeTakenSecondsOutput) = BenchmarkFunction(() =>
+            {
+                WriteOutputImage(currentImageSize, result, "prospero.jpg");
+                return true;
+            });
+            
+            combinedOutputString += $" - took: {timeTakenSecondsOutput} seconds to write out image!" + Environment.NewLine;
+        }
+
+        return result;
+    });
+
+    Console.Write($"Sharpero took: {totalTimeTakenSecondsOutput} seconds to evaluate {currentImageSize}x{currentImageSize} image!" + Environment.NewLine + combinedOutputString);
+
+    (T, double) BenchmarkFunction<T>(Func<T> benchmarkedFunction)
+    {
+        var sw = Stopwatch.StartNew();
+        T benchmarkedResult = benchmarkedFunction();
+        return (benchmarkedResult, sw.Elapsed.TotalSeconds);
+    }
+
+    void WriteOutputImage(int imageSize, float[] imageData, string imageOutputPath)
+    {
+        byte[] imageDataBytes = imageData.Select(p => (byte)(p < 0 ? 255 : 0)).ToArray();
+        using var image = SKImage.FromPixelCopy(new SKImageInfo(imageSize, imageSize, SKColorType.Gray8), imageDataBytes);
+        using var data = image.Encode(SKEncodedImageFormat.Jpeg, 100);
+        using var stream = File.OpenWrite(imageOutputPath);
+        data.SaveTo(stream);
+    }
+
+    return result;
 }
 
 internal enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
@@ -184,7 +301,7 @@ internal static class Parsing
             };
         }
 
-        bool shouldEliminateConstants = false;
+        bool shouldEliminateConstants = true;
 
         if (shouldEliminateConstants)
         {
@@ -194,29 +311,25 @@ internal static class Parsing
                 switch (instruction.OpCode)
                 {
                     case (OpCode.Add or OpCode.Sub or OpCode.Mul) when instruction.A.IsConstant || instruction.B.IsConstant:
-                    {
-                        instruction = instruction switch
+                        switch (instruction)
                         {
-                            { A.IsConstant: true, B.IsConstant: false } => instruction with
-                            {
-                                C = instructions[instruction.A].C
-                            },
-                            { A.IsConstant: false, B.IsConstant: true } => instruction with
-                            {
-                                C = instructions[instruction.B].C
-                            },
-                            { A.IsConstant: true, B.IsConstant: true } => instruction with
-                            {
-                                C = EvaluateExpression(instruction.OpCode, instructions[instruction.A].C,
-                                    instructions[instruction.B].C)
-                            },
-                            { A.IsConstant: false, B.IsConstant: false } => instruction
-                        };
+                            case { A: { IsConstant: true } a, B.IsConstant: false }:
+                                instruction = instruction with { C = instructions[a].C };
+                                break;
+                            case { A.IsConstant: false, B: { IsConstant: true } b }:
+                                instruction = instruction with { C = instructions[b].C };
+                                break;
+                            case { OpCode: var opCode, A: { IsConstant: true } a, B: { IsConstant: true } b }:
+                                instruction = instruction with { C = EvaluateExpression(opCode, instructions[a].C, instructions[b].C) };
+                                break;
+                            case { A.IsConstant: false, B.IsConstant: false }:
+                                break;
+                        }
                         break;
-                    }
                 }
             }
 
+            // relocate all offsets, now that we've nuked all the constants
             foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
             {
                 switch (instruction.OpCode)
@@ -225,32 +338,35 @@ internal static class Parsing
                         int offset = instruction.Out;
                         foreach (ref Instruction otherInstruction in CollectionsMarshal.AsSpan(instructions))
                         {
-                            if (otherInstruction.Out >= offset)
+                            int newOperandOut = otherInstruction.Out >= offset
+                                ? otherInstruction.Out - 1
+                                : otherInstruction.Out;
+                            
+                            int newOperandA = otherInstruction.A >= offset
+                                ? otherInstruction.A - 1
+                                : otherInstruction.A;
+
+                            int newOperandB = otherInstruction.B >= offset
+                                ? otherInstruction.B - 1
+                                : otherInstruction.B;
+
+                            if (newOperandOut == otherInstruction.Out
+                                && newOperandA == otherInstruction.A
+                                && newOperandB == otherInstruction.B)
                             {
-                                otherInstruction = otherInstruction with { Out = new Operand(otherInstruction.Out - 1) };
+                                continue;
                             }
 
-                            if (otherInstruction.A >= offset)
+                            otherInstruction = otherInstruction with
                             {
-                                otherInstruction = otherInstruction with
-                                {
-                                    A = new Operand(otherInstruction.A - 1, isConstant: otherInstruction.A.IsConstant)
-                                };
-                            }
-
-                            if (otherInstruction.B >= offset)
-                            {
-                                otherInstruction = otherInstruction with
-                                {
-                                    B = new Operand(otherInstruction.B - 1, otherInstruction.B.IsConstant)
-                                };
-                            }
+                                Out = new Operand(newOperandOut),
+                                A = new Operand(newOperandA, isConstant: otherInstruction.A.IsConstant),
+                                B = new Operand(newOperandB, isConstant: otherInstruction.B.IsConstant),
+                            };
                         }
-
                         break;
                 }
             }
-
 
             // eliminate all constants now :)
             int totalNumberOfInstructions = instructions.Count;
@@ -262,51 +378,11 @@ internal static class Parsing
     }   
 }
 
-internal static class Compiler
-{
-    static (AssemblyBuilder, MethodBuilder, TypeBuilder) CreateDynamicAssemblyWithMethodBuilder(string assemblyName,
-        string moduleName, string typeName, string methodName)
-    {
-        var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run);
-        var moduleBuilder = assemblyBuilder.DefineDynamicModule(moduleName);
-        var typeBuilder = moduleBuilder.DefineType(typeName, TypeAttributes.Public);
-        var methodBuilder =
-            typeBuilder.DefineMethod(
-                methodName,
-                MethodAttributes.Public | MethodAttributes.Static,
-                typeof(float),
-                [typeof(float), typeof(float)]);
-        
-        // #TODO: how do this?
-        // assemblyBuilder.EntryPoint = methodBuilder;
-        
-        return (assemblyBuilder, methodBuilder, typeBuilder);
-    }
-
-    static void BuildProgramToAssembly(Instruction[] instructions)
-    {
-        var (assemblyBuilder, methodBuilder, typeBuilder) = CreateDynamicAssemblyWithMethodBuilder(
-            assemblyName: "SharperoAssembly",
-            moduleName: "SharperoModule",
-            typeName: "SharperoMain",
-            methodName: "Evaluate");
-    }
-
-    static void ExecuteProgramInAssembly()
-    {
-    }
-    
-    public static float[] Evaluate(Instruction[] instructions, int imageSize)
-    {
-        return Array.Empty<float>();
-    }
-}
-
 internal static class Interpreter
 {
-    public static float[] Evaluate(Instruction[] instructions, int imageSize)
+    public static float[] Evaluate(Instruction[] instructions, int imageSize, float[]? result = null)
     {
-        float[] result = new float[imageSize * imageSize];
+        result ??= new float[imageSize * imageSize];
 
         int chunkSize = Vector<float>.Count;
         Parallel.For(0, (imageSize * imageSize) / chunkSize, chunkIdx =>
