@@ -445,7 +445,8 @@ internal static class Interpreter
             throw new InvalidOperationException();
         }
     }
-    
+   
+    [SkipLocalsInit]
     public static float[] Evaluate<T>(Instruction[] instructions, int imageSize, InterpreterOptions options = default, float[]? result = null)
         where T : unmanaged
     {
@@ -515,7 +516,6 @@ internal static class Interpreter
         }
         else if (typeof(T) == typeof(Vector<float>))
         {
-            
             return (T)(object)(Unsafe.As<T, Vector<float>>(ref a) - Unsafe.As<T, Vector<float>>(ref b));
         }
         else
