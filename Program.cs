@@ -133,8 +133,8 @@ void Main()
 
         if (lastEvaluationTimeTook != 0.0f)
         {
-            double nanoSecondsPerPixel =
-                (lastEvaluationTimeTook * 1000.0 * 1000.0 * 1000.0) / (currentOutputImageSize * currentOutputImageSize) ;
+            double evaluationTimeNanoSeconds = (lastEvaluationTimeTook * 1000.0 * 1000.0 * 1000.0);
+            double nanoSecondsPerPixel = evaluationTimeNanoSeconds / (currentOutputImageSize * currentOutputImageSize);
             Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12, 52, 20, Color.White);
         }
 
@@ -314,18 +314,12 @@ internal static class Parsing
             {
                 [{ } @out, "var-x"] => new Instruction(identifiers[@out], OpCode.VarX),
                 [{ } @out, "var-y"] => new Instruction(identifiers[@out], OpCode.VarY),
-                [{ } @out, "const", { } v] => new Instruction(identifiers[@out], OpCode.Const,
-                    C: float.Parse(v, CultureInfo.InvariantCulture)),
-                [{ } @out, "add", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Add, identifiers[a],
-                    identifiers[b]),
-                [{ } @out, "sub", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Sub, identifiers[a],
-                    identifiers[b]),
-                [{ } @out, "mul", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Mul, identifiers[a],
-                    identifiers[b]),
-                [{ } @out, "max", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Max, identifiers[a],
-                    identifiers[b]),
-                [{ } @out, "min", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Min, identifiers[a],
-                    identifiers[b]),
+                [{ } @out, "const", { } v]=> new Instruction(identifiers[@out], OpCode.Const, C: float.Parse(v, CultureInfo.InvariantCulture)),
+                [{ } @out, "add", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Add, identifiers[a], identifiers[b]),
+                [{ } @out, "sub", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Sub, identifiers[a], identifiers[b]),
+                [{ } @out, "mul", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Mul, identifiers[a], identifiers[b]),
+                [{ } @out, "max", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Max, identifiers[a], identifiers[b]),
+                [{ } @out, "min", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Min, identifiers[a], identifiers[b]),
                 [{ } @out, "neg", { } a] => new Instruction(identifiers[@out], OpCode.Neg, identifiers[a]),
                 [{ } @out, "square", { } a] => new Instruction(identifiers[@out], OpCode.Square, identifiers[a]),
                 [{ } @out, "sqrt", { } a] => new Instruction(identifiers[@out], OpCode.Sqrt, identifiers[a]),
