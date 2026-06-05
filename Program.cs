@@ -32,7 +32,7 @@ void Main()
 
         void main()
         {
-            float v = texture(texture0, fragTexCoord).r< 0 ? 1.0 : 0.0;
+            float v = texture(texture0, fragTexCoord).r < 0 ? 1.0 : 0.0;
             outputColor = vec4(v, v, v, 1.0f) * fragColor;
         }
     """;
@@ -63,6 +63,7 @@ void Main()
    
     // options??
     bool shouldUseParallelism = true;
+    bool shouldUseSimd = true;
 
     bool isEvaluating = false;
     bool shouldEvaluate = false;
@@ -84,13 +85,23 @@ void Main()
         {
             isEvaluating = true;
             shouldUpdateTexture = true;
-            InterpreterOptions interpreterOptions = (shouldUseParallelism ? InterpreterOptions.Parallelism : default);
+            InterpreterOptions interpreterOptions = (shouldUseParallelism ? InterpreterOptions.Parallelism : default)
+                                                    | (shouldUseSimd ? InterpreterOptions.Simd : default);
             
             Task.Run(() =>
             {
                 Instruction[] instructions = Parsing.Parse(programsProsperoVm);
                 currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
-                Interpreter.Evaluate(instructions, imageSize: currentOutputImageSize, interpreterOptions, currentOutputImageData);
+
+                if ((interpreterOptions & InterpreterOptions.Simd) != 0)
+                {
+                    Interpreter.Evaluate<Vector<float>>(instructions, imageSize: currentOutputImageSize, interpreterOptions, currentOutputImageData);
+                }
+                else
+                {
+                    Interpreter.Evaluate<float>(instructions, imageSize: currentOutputImageSize, interpreterOptions, currentOutputImageData);
+                }
+                
                 Raylib.UpdateTexture(currentOutputTexture, currentOutputImageData);
                 shouldCancelUpdateTexture = true;
                 isEvaluating = false;
@@ -114,7 +125,7 @@ void Main()
         Raylib.EndShaderMode();
         
         Raylib.DrawText("Sharpero (press R to evaluate, O to output to file)", 12, 12, 20, Color.White);
-        Raylib.DrawText($" - parallelism {(shouldUseParallelism ? "enabled" : "disabled")} (P to toggle)", 12, 32, 20, Color.White);
+        Raylib.DrawText($" - parallelism {(shouldUseParallelism ? "enabled" : "disabled")} (P to toggle), simd {(shouldUseSimd ? "enabled" : "disabled")} (S to toggle)", 12, 32, 20, Color.White);
 
         if (Raylib.IsKeyPressed(KeyboardKey.R))
         {
@@ -134,6 +145,11 @@ void Main()
             shouldUseParallelism = !shouldUseParallelism;
         }
 
+        if (Raylib.IsKeyPressed(KeyboardKey.S))
+        {
+            shouldUseSimd = !shouldUseSimd;
+        }
+
         Raylib.EndDrawing();
     } 
     
@@ -151,7 +167,8 @@ float[] GenerateOutputImage(int currentImageSize, bool shouldWriteOutputImage = 
         (float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
         {
             Instruction[] instructions = Parsing.Parse(programsProsperoVm);
-            return Interpreter.Evaluate(instructions, imageSize: currentImageSize);
+            InterpreterOptions interpreterOptions = InterpreterOptions.Parallelism | InterpreterOptions.Simd;
+            return Interpreter.Evaluate<Vector<float>>(instructions, imageSize: currentImageSize, interpreterOptions);
         });
 
         combinedOutputString += $" - took: {timeTakenSecondsEvaluate} seconds to evaluate the image!" + Environment.NewLine;
@@ -401,12 +418,31 @@ internal static class Parsing
 [Flags]
 internal enum InterpreterOptions
 {
-    Parallelism = 0x1
+    Parallelism = 0x1,
+    Simd = 0x2
 }
 
 internal static class Interpreter
 {
-    public static float[] Evaluate(Instruction[] instructions, int imageSize, InterpreterOptions options = default, float[]? result = null)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T GetElement<T>(Span<float> values)
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)values[0];
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)new Vector<float>(values);
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
+    public static float[] Evaluate<T>(Instruction[] instructions, int imageSize, InterpreterOptions options = default, float[]? result = null)
+        where T : unmanaged
     {
         result ??= new float[imageSize * imageSize];
 
@@ -415,7 +451,7 @@ internal static class Interpreter
             MaxDegreeOfParallelism = (options & InterpreterOptions.Parallelism) != 0 ? -1 : 1
         };
 
-        int chunkSize = Vector<float>.Count;
+        int chunkSize = typeof(T) == typeof(Vector<float>) ? Vector<float>.Count : 1;
         Parallel.For(0, (imageSize * imageSize) / chunkSize, parallelOptions, chunkIdx =>
         {
             Span<float> xs = stackalloc float[chunkSize];
@@ -433,24 +469,207 @@ internal static class Interpreter
                 (xs[idx], ys[idx]) = (vx, vy);
             }
 
-            Vector<float> results = Evaluate(instructions, new Vector<float>(xs), new Vector<float>(ys));
+            T results = Evaluate(instructions, GetElement<T>(xs), GetElement<T>(ys));
             for (int idx = 0; idx < chunkSize; ++idx)
             {
                 int currentIdx = chunkIdx * chunkSize + idx;
                 (int x, int y) = Parsing.IndexToCoord(currentIdx, width: imageSize);
-                result[Parsing.CoordToIndex(x, y, width: imageSize)] = results[idx];
+
+                result[Parsing.CoordToIndex(x, y, width: imageSize)] = Unsafe.Add(ref Unsafe.As<T, float>(ref results), idx);
             }
         });
 
         return result;
     }
+   
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Add<T>(T a, T b)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)(Unsafe.As<T, float>(ref a) + Unsafe.As<T, float>(ref b));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)(Unsafe.As<T, Vector<float>>(ref a) + Unsafe.As<T, Vector<float>>(ref b));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+   
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Sub<T>(T a, T b)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)(Unsafe.As<T, float>(ref a) - Unsafe.As<T, float>(ref b));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            
+            return (T)(object)(Unsafe.As<T, Vector<float>>(ref a) - Unsafe.As<T, Vector<float>>(ref b));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+  
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Mul<T>(T a, T b)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)(Unsafe.As<T, float>(ref a) * Unsafe.As<T, float>(ref b));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)(Unsafe.As<T, Vector<float>>(ref a) * Unsafe.As<T, Vector<float>>(ref b));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+   
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Mul<T>(T a, float b)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)(Unsafe.As<T, float>(ref a) * b);
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)(Unsafe.As<T, Vector<float>>(ref a) * b);
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Neg<T>(T v)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)(-Unsafe.As<T, float>(ref v));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return  (T)(object)(-Unsafe.As<T, Vector<float>>(ref v));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Max<T>(T a, T b)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)Math.Max(Unsafe.As<T, float>(ref a), Unsafe.As<T, float>(ref b));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)Vector.Max(Unsafe.As<T, Vector<float>>(ref a), Unsafe.As<T, Vector<float>>(ref b));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Min<T>(T a, T b)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)Math.Min(Unsafe.As<T, float>(ref a), Unsafe.As<T, float>(ref b));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)Vector.Min(Unsafe.As<T, Vector<float>>(ref a), Unsafe.As<T, Vector<float>>(ref b));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T SquareRoot<T>(T v)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)MathF.Sqrt(Unsafe.As<T, float>(ref v));
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)Vector.SquareRoot(Unsafe.As<T, Vector<float>>(ref v));
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T EvaluateConstant<T>(float c)
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)c;
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)new Vector<float>(c);
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T One<T>()
+        where T : unmanaged
+    {
+        if (typeof(T) == typeof(float))
+        {
+            return (T)(object)1.0f;
+        }
+        else if (typeof(T) == typeof(Vector<float>))
+        {
+            return (T)(object)Vector<float>.One;
+        }
+        else
+        {
+            throw new InvalidOperationException();
+        }
+    }
+    
     [SkipLocalsInit]
-    public static Vector<float> Evaluate(Instruction[] instructions, Vector<float> xs, Vector<float> ys)
+    public static T Evaluate<T>(Instruction[] instructions, T xs, T ys)
+        where T : unmanaged 
     {
         // #TODO: this construction is just a little bit unhinged lol
-        Span<Vector<float>> variables = stackalloc Vector<float>[instructions.Length];
-
+        Span<T> variables = stackalloc T[instructions.Length];
+        
         foreach (ref Instruction instruction in instructions.AsSpan())
         {
             variables[instruction.Out] = instruction switch
@@ -458,25 +677,25 @@ internal static class Interpreter
                 { OpCode: OpCode.VarX } => xs,
                 { OpCode: OpCode.VarY } => ys,
                 
-                { OpCode: OpCode.Add, A: { IsConstant: false } a, B: { IsConstant: false } b } => variables[a] + variables[b],
-                { OpCode: OpCode.Add, A.IsConstant: true, B: { IsConstant: false } b } => new Vector<float>(instruction.C) + variables[b],
-                { OpCode: OpCode.Add, A: { IsConstant: false } a, B.IsConstant: true } => variables[a] + new Vector<float>(instruction.C),
+                { OpCode: OpCode.Add, A: { IsConstant: false } a, B: { IsConstant: false } b } => Add(variables[a], variables[b]),
+                { OpCode: OpCode.Add, A.IsConstant: true, B: { IsConstant: false } b } => Add(EvaluateConstant<T>(instruction.C), variables[b]),
+                { OpCode: OpCode.Add, A: { IsConstant: false } a, B.IsConstant: true } => Add(variables[a], EvaluateConstant<T>(instruction.C)),
                 
-                { OpCode: OpCode.Sub, A: { IsConstant: false } a, B: { IsConstant: false } b } => variables[a] - variables[b],
-                { OpCode: OpCode.Sub, A.IsConstant: true, B: { IsConstant: false } b } => new Vector<float>(instruction.C) - variables[b],
-                { OpCode: OpCode.Sub, A: { IsConstant: false } a, B.IsConstant: true } => variables[a] - new Vector<float>(instruction.C),
+                { OpCode: OpCode.Sub, A: { IsConstant: false } a, B: { IsConstant: false } b } => Sub(variables[a], variables[b]),
+                { OpCode: OpCode.Sub, A.IsConstant: true, B: { IsConstant: false } b } => Sub(EvaluateConstant<T>(instruction.C), variables[b]),
+                { OpCode: OpCode.Sub, A: { IsConstant: false } a, B.IsConstant: true } => Sub(variables[a], EvaluateConstant<T>(instruction.C)),
                 
-                { OpCode: OpCode.Mul, A: { IsConstant: false } a, B: { IsConstant: false } b } => variables[a] * variables[b],
-                { OpCode: OpCode.Mul, A.IsConstant: true, B: { IsConstant: false } b } => new Vector<float>(instruction.C) * variables[b],
-                { OpCode: OpCode.Mul, A: { IsConstant: false } a, B.IsConstant: true } => variables[a] * new Vector<float>(instruction.C),
+                { OpCode: OpCode.Mul, A: { IsConstant: false } a, B: { IsConstant: false } b } => Mul(variables[a], variables[b]),
+                { OpCode: OpCode.Mul, A.IsConstant: true, B: { IsConstant: false } b } => Mul(EvaluateConstant<T>(instruction.C), variables[b]),
+                { OpCode: OpCode.Mul, A: { IsConstant: false } a, B.IsConstant: true } => Mul(variables[a], EvaluateConstant<T>(instruction.C)),
                 
-                { OpCode: OpCode.Max, A: var a, B: var b } => Vector.Max(variables[a], variables[b]),
-                { OpCode: OpCode.Min, A: var a, B: var b } => Vector.Min(variables[a], variables[b]),
-                { OpCode: OpCode.Neg, A: var a } => -variables[a],
-                { OpCode: OpCode.Sqrt, A: var a } => Vector.SquareRoot(variables[a]),
-                { OpCode: OpCode.Square, A: var a } => variables[a] * variables[a],
+                { OpCode: OpCode.Max, A: var a, B: var b } => Max(variables[a], variables[b]),
+                { OpCode: OpCode.Min, A: var a, B: var b } => Min(variables[a], variables[b]),
+                { OpCode: OpCode.Neg, A: var a } => Neg(variables[a]),
+                { OpCode: OpCode.Sqrt, A: var a } => SquareRoot(variables[a]),
+                { OpCode: OpCode.Square, A: var a } => Mul(variables[a], variables[a]),
                 
-                { OpCode: OpCode.Const, C: var v } => Vector<float>.One * v,
+                { OpCode: OpCode.Const, C: var v } => Mul(One<T>(), v),
                 _ => variables[instruction.Out]
             };
         }
