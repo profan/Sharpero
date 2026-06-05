@@ -70,6 +70,8 @@ void Main()
     bool shouldCancelUpdateTexture = false;
     bool shouldUpdateTexture = false;
 
+    float lastEvaluationTimeTook = 0.0f;
+
     while (!Raylib.WindowShouldClose()) 
     {
         Raylib.BeginDrawing();
@@ -90,6 +92,7 @@ void Main()
             
             Task.Run(() =>
             {
+                Stopwatch sw = Stopwatch.StartNew();
                 Instruction[] instructions = Parsing.Parse(programsProsperoVm);
                 currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
 
@@ -101,7 +104,8 @@ void Main()
                 {
                     Interpreter.Evaluate<float>(instructions, imageSize: currentOutputImageSize, interpreterOptions, currentOutputImageData);
                 }
-                
+
+                lastEvaluationTimeTook = (float)sw.Elapsed.TotalSeconds;
                 Raylib.UpdateTexture(currentOutputTexture, currentOutputImageData);
                 shouldCancelUpdateTexture = true;
                 isEvaluating = false;
@@ -126,6 +130,13 @@ void Main()
         
         Raylib.DrawText("Sharpero (press R to evaluate, O to output to file)", 12, 12, 20, Color.White);
         Raylib.DrawText($" - parallelism {(shouldUseParallelism ? "enabled" : "disabled")} (P to toggle), simd {(shouldUseSimd ? "enabled" : "disabled")} (S to toggle)", 12, 32, 20, Color.White);
+
+        if (lastEvaluationTimeTook != 0.0f)
+        {
+            double nanoSecondsPerPixel =
+                (lastEvaluationTimeTook * 1000.0 * 1000.0 * 1000.0) / (currentOutputImageSize * currentOutputImageSize) ;
+            Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12, 52, 20, Color.White);
+        }
 
         if (Raylib.IsKeyPressed(KeyboardKey.R))
         {
