@@ -584,7 +584,7 @@ internal static class Interpreter
     {
         if (typeof(T) == typeof(float))
         {
-            return (T)(object)Math.Max(Unsafe.As<T, float>(ref a), Unsafe.As<T, float>(ref b));
+            return (T)(object)MathF.Max(Unsafe.As<T, float>(ref a), Unsafe.As<T, float>(ref b));
         }
         else if (typeof(T) == typeof(Vector<float>))
         {
@@ -602,7 +602,7 @@ internal static class Interpreter
     {
         if (typeof(T) == typeof(float))
         {
-            return (T)(object)Math.Min(Unsafe.As<T, float>(ref a), Unsafe.As<T, float>(ref b));
+            return (T)(object)MathF.Min(Unsafe.As<T, float>(ref a), Unsafe.As<T, float>(ref b));
         }
         else if (typeof(T) == typeof(Vector<float>))
         {
