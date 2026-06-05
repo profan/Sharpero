@@ -234,7 +234,7 @@ internal readonly record struct Operand
     }
 
     public static implicit operator int(Operand o) => o.Value;
-    public override string ToString() => $"{Value} (constant: {IsConstant.ToString().ToLower()})";
+    public override string ToString() => $"{(IsConstant ? Value : $"_{Value}")}";
 }
 
 internal readonly record struct Instruction(
