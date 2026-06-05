@@ -425,7 +425,7 @@ internal enum InterpreterOptions
 internal static class Interpreter
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static T GetElement<T>(Span<float> values)
+    public static T GetValues<T>(Span<float> values)
     {
         if (typeof(T) == typeof(float))
         {
@@ -469,7 +469,7 @@ internal static class Interpreter
                 (xs[idx], ys[idx]) = (vx, vy);
             }
 
-            T results = Evaluate(instructions, GetElement<T>(xs), GetElement<T>(ys));
+            T results = Evaluate(instructions, GetValues<T>(xs), GetValues<T>(ys));
             for (int idx = 0; idx < chunkSize; ++idx)
             {
                 int currentIdx = chunkIdx * chunkSize + idx;
