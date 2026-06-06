@@ -160,21 +160,18 @@ void Main()
             Raylib.DrawTexture(currentOutputTexture, 0, 0, Color.White);
         Raylib.EndShaderMode();
         
-        Raylib.DrawText("Sharpero (press R to evaluate, O to output to file)", 12, 12, 20, Color.White);
-        Raylib.DrawText($" - parallelism {(shouldUseParallelism ? "enabled" : "disabled")} (P to toggle), simd {(shouldUseSimd ? "enabled" : "disabled")} (S to toggle), compile {(shouldUseCompiler? "enabled" : "disabled")} (C to toggle)", 12, 32, 20, Color.White);
+        Raylib.DrawText("Sharpero (press R to evaluate, O to output to file)", 12, 12, 20, Color.RayWhite);
+        Raylib.DrawText($" - parallelism {(shouldUseParallelism ? "enabled" : "disabled")} (P to toggle), simd {(shouldUseSimd ? "enabled" : "disabled")} (S to toggle), compile {(shouldUseCompiler? "enabled" : "disabled")} (C to toggle)", 12, 32, 20, Color.RayWhite);
 
         if (lastEvaluationTimeTook != 0.0f)
         {
             double evaluationTimeNanoSeconds = (lastEvaluationTimeTook * 1000.0 * 1000.0 * 1000.0);
             double nanoSecondsPerPixel = evaluationTimeNanoSeconds / (currentOutputImageSize * currentOutputImageSize);
-            if (shouldUseCompiler)
-            {
-                Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel) (compilation: {lastCompilationTimeTook:0.0} s)", 12, 52, 20, Color.White);
-            }
-            else
-            {
-                Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12, 52, 20, Color.White);
-            }
+            Raylib.DrawText(
+                shouldUseCompiler
+                    ? $" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel) (compilation: {lastCompilationTimeTook:0.0} s)"
+                    : $" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12,
+                52, 20, Color.White);
         }
 
         if (Raylib.IsKeyPressed(KeyboardKey.R))
@@ -186,7 +183,7 @@ void Main()
         {
             Task.Run(() =>
             {
-                GenerateOutputImage(currentImageSize: currentOutputImageSize, shouldWriteOutputImage: true);
+                GenerateOutputImage(currentImageSize: currentOutputImageSize);
             });
         }
 
@@ -221,54 +218,37 @@ void Main()
     Raylib.CloseWindow();
 }
 
-float[] GenerateOutputImage(int currentImageSize, bool shouldWriteOutputImage = false)
+void GenerateOutputImage(int currentImageSize)
 {
-    string combinedOutputString = string.Empty;
-
-    (float[] result, double totalTimeTakenSecondsOutput) = BenchmarkFunction(() =>
+    string outputImagePath = "prospero.jpg";
+    InterpreterOptions interpreterOptions = InterpreterOptions.Parallelism | InterpreterOptions.Simd;
+    
+    (bool result, double timeTakenInSeconds) = BenchmarkFunction(() =>
     {
-        (float[] result, double timeTakenSecondsEvaluate) = BenchmarkFunction(() =>
+        EvaluationInstructions instructions = Parsing.Parse(programsProsperoVm);
+        float[] result = Interpreter.Evaluate<Vector<float>>(instructions, imageSize: currentImageSize, interpreterOptions);
+        WriteOutputImage(currentImageSize, result, outputImagePath);
+    
+        void WriteOutputImage(int imageSize, float[] imageData, string imageOutputPath)
         {
-            EvaluationInstructions instructions = Parsing.Parse(programsProsperoVm);
-            InterpreterOptions interpreterOptions = InterpreterOptions.Parallelism | InterpreterOptions.Simd;
-            return Interpreter.Evaluate<Vector<float>>(instructions, imageSize: currentImageSize, interpreterOptions);
-        });
-
-        combinedOutputString += $" - took: {timeTakenSecondsEvaluate} seconds to evaluate the image!" + Environment.NewLine;
-
-        if (shouldWriteOutputImage)
-        {
-            (bool success, double timeTakenSecondsOutput) = BenchmarkFunction(() =>
-            {
-                WriteOutputImage(currentImageSize, result, "prospero.jpg");
-                return true;
-            });
-            
-            combinedOutputString += $" - took: {timeTakenSecondsOutput} seconds to write out image!" + Environment.NewLine;
+            byte[] imageDataBytes = imageData.Select(p => (byte)(p < 0 ? 255 : 0)).ToArray();
+            using var image = SKImage.FromPixelCopy(new SKImageInfo(imageSize, imageSize, SKColorType.Gray8), imageDataBytes);
+            using var data = image.Encode(SKEncodedImageFormat.Jpeg, 100);
+            using var stream = File.OpenWrite(imageOutputPath);
+            data.SaveTo(stream);
         }
 
-        return result;
+        return true;
     });
+    
+    Console.WriteLine($"Sharpero wrote {currentImageSize}x{currentImageSize} to {outputImagePath} in {timeTakenInSeconds} seconds ({interpreterOptions})");
+}
 
-    Console.Write($"Sharpero took: {totalTimeTakenSecondsOutput} seconds to evaluate {currentImageSize}x{currentImageSize} image!" + Environment.NewLine + combinedOutputString);
-
-    (T, double) BenchmarkFunction<T>(Func<T> benchmarkedFunction)
-    {
-        var sw = Stopwatch.StartNew();
-        T benchmarkedResult = benchmarkedFunction();
-        return (benchmarkedResult, sw.Elapsed.TotalSeconds);
-    }
-
-    void WriteOutputImage(int imageSize, float[] imageData, string imageOutputPath)
-    {
-        byte[] imageDataBytes = imageData.Select(p => (byte)(p < 0 ? 255 : 0)).ToArray();
-        using var image = SKImage.FromPixelCopy(new SKImageInfo(imageSize, imageSize, SKColorType.Gray8), imageDataBytes);
-        using var data = image.Encode(SKEncodedImageFormat.Jpeg, 100);
-        using var stream = File.OpenWrite(imageOutputPath);
-        data.SaveTo(stream);
-    }
-
-    return result;
+(T, double) BenchmarkFunction<T>(Func<T> benchmarkedFunction)
+{
+    var sw = Stopwatch.StartNew();
+    T benchmarkedResult = benchmarkedFunction();
+    return (benchmarkedResult, sw.Elapsed.TotalSeconds);
 }
 
 internal enum OpCode { VarX, VarY, Const, Add, Sub, Mul, Max, Min, Neg, Square, Sqrt }
@@ -352,6 +332,11 @@ internal static class Parsing
         var identifiers = new Dictionary<string, Operand>();
         foreach (string line in File.ReadAllLines(filename))
         {
+            if (line.StartsWith('#'))
+            {
+                continue;
+            }
+            
             switch (line.Split(" "))
             {
                 case [{ } @out, "const", not null]:
@@ -375,6 +360,11 @@ internal static class Parsing
         List<Instruction> instructions = [];
         foreach (string line in File.ReadAllLines(filename))
         {
+            if (line.StartsWith('#'))
+            {
+                continue;
+            }
+            
             Instruction? parsedInstruction = line.Split(" ") switch
             {
                 [{ } @out, "var-x"] => new Instruction(identifiers[@out], OpCode.VarX),
