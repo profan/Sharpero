@@ -68,6 +68,9 @@ void Main()
     bool shouldUseCompiler = false;
     bool shouldUseParallelism = true;
     bool shouldUseSimd = true;
+    
+    // compilation specific
+    bool shouldRecompile = false;
 
     bool isEvaluating = false;
     bool shouldEvaluate = false;
@@ -75,32 +78,54 @@ void Main()
     bool shouldUpdateTexture = false;
 
     float lastEvaluationTimeTook = 0.0f;
+    float lastCompilationTimeTook = 0.0f;
+   
+    // cache the instructions, the program doesn't change after all
+    EvaluationInstructions instructions = Parsing.Parse(programsProsperoVm);
 
     while (!Raylib.WindowShouldClose()) 
     {
         Raylib.BeginDrawing();
         
         Raylib.ClearBackground(Color.White);
+        
+        InterpreterOptions interpreterOptions = (shouldUseParallelism ? InterpreterOptions.Parallelism : default)
+                                                | (shouldUseSimd ? InterpreterOptions.Simd : default)
+                                                | (shouldUseCompiler
+                                                    ? InterpreterOptions.CompileInnerLoop
+                                                    : default);
 
         if (shouldEvaluate && isEvaluating)
         {
             shouldEvaluate = false;
         }
 
+        if (shouldRecompile)
+        {
+            Compiler.CompilerCache<Vector<float>>.CachedPrograms.Clear();
+            Compiler.CompilerCache<float>.CachedPrograms.Clear();
+
+            Stopwatch sw = Stopwatch.StartNew();
+            if ((interpreterOptions & InterpreterOptions.Simd) != 0)
+            {
+                Compiler.Compile<Vector<float>>(instructions);
+            }
+            else
+            {
+                Compiler.Compile<float>(instructions);
+            }
+            lastCompilationTimeTook = (float)sw.Elapsed.TotalSeconds;
+            shouldRecompile = false;
+        }
+
         if (shouldEvaluate && !isEvaluating)
         {
             isEvaluating = true;
             shouldUpdateTexture = true;
-            InterpreterOptions interpreterOptions = (shouldUseParallelism ? InterpreterOptions.Parallelism : default)
-                                                    | (shouldUseSimd ? InterpreterOptions.Simd : default)
-                                                    | (shouldUseCompiler
-                                                        ? InterpreterOptions.CompileInnerLoop
-                                                        : default);
             
             Task.Run(() =>
             {
                 Stopwatch sw = Stopwatch.StartNew();
-                EvaluationInstructions instructions = Parsing.Parse(programsProsperoVm);
                 currentOutputImageData.AsSpan()[..currentOutputImageData.Length].Clear();
 
                 if ((interpreterOptions & InterpreterOptions.Simd) != 0)
@@ -142,7 +167,14 @@ void Main()
         {
             double evaluationTimeNanoSeconds = (lastEvaluationTimeTook * 1000.0 * 1000.0 * 1000.0);
             double nanoSecondsPerPixel = evaluationTimeNanoSeconds / (currentOutputImageSize * currentOutputImageSize);
-            Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12, 52, 20, Color.White);
+            if (shouldUseCompiler)
+            {
+                Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel) (compilation: {lastCompilationTimeTook:0.0} s)", 12, 52, 20, Color.White);
+            }
+            else
+            {
+                Raylib.DrawText($" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12, 52, 20, Color.White);
+            }
         }
 
         if (Raylib.IsKeyPressed(KeyboardKey.R))
@@ -166,11 +198,19 @@ void Main()
         if (Raylib.IsKeyPressed(KeyboardKey.S))
         {
             shouldUseSimd = !shouldUseSimd;
+            if (shouldUseCompiler)
+            {
+                shouldRecompile = true;
+            }
         }
         
         if (Raylib.IsKeyPressed(KeyboardKey.C))
         {
             shouldUseCompiler = !shouldUseCompiler;
+            if (shouldUseCompiler)
+            {
+                shouldRecompile = true;
+            }
         }
 
         Raylib.EndDrawing();
