@@ -767,7 +767,7 @@ internal static class Compiler
         {
             // write, previous result will be at loc 0 if all is well
             methodGenerator.Emit(OpCodes.Ldarg_0); // Span<T>
-            methodGenerator.Emit(OpCodes.Ldloc_0); // result of call
+            methodGenerator.Emit(OpCodes.Ldloc_0); // result
             methodGenerator.Emit(OpCodes.Ldc_I4, offset); // offset
             methodGenerator.Emit(OpCodes.Call, typeof(Evaluation).GetMethod(nameof(Evaluation.Write))!.MakeGenericMethod(typeof(T)));
         }
