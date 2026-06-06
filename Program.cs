@@ -650,24 +650,7 @@ internal static class Compiler
     internal static class CompilerCache<T>
         where T : unmanaged
     {
-        internal static readonly ConcurrentDictionary<EvaluationInstructions, Delegates<T>.EvaluateDelegate> CachedPrograms =
-            new ConcurrentDictionary<EvaluationInstructions, Delegates<T>.EvaluateDelegate>();
-    }
-    
-    private static (AssemblyBuilder, MethodBuilder, TypeBuilder) CreateDynamicAssemblyWithMethodBuilder<T>(string assemblyName, string moduleName, string typeName, string methodName)
-        where T : unmanaged
-    {
-        var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(assemblyName), AssemblyBuilderAccess.Run);
-        var moduleBuilder = assemblyBuilder.DefineDynamicModule(moduleName);
-        var typeBuilder = moduleBuilder.DefineType(typeName, TypeAttributes.Public);
-        var methodBuilder =
-            typeBuilder.DefineMethod(
-                methodName,
-                MethodAttributes.Public | MethodAttributes.Static,
-                typeof(void),
-                [typeof(Span<T>), typeof(T), typeof(T)]);
-        
-        return (assemblyBuilder, methodBuilder, typeBuilder);
+        internal static readonly ConcurrentDictionary<EvaluationInstructions, Delegates<T>.EvaluateDelegate> CachedPrograms = new ConcurrentDictionary<EvaluationInstructions, Delegates<T>.EvaluateDelegate>();
     }
     
     public static Delegates<T>.EvaluateDelegate Compile<T>(EvaluationInstructions evaluationInstructions)
@@ -778,14 +761,14 @@ internal static class Compiler
         
         void EmitInvokeUnaryOperation(string methodName)
         {
-            // call with Span<T>, pushed results of variables[a] and variables[b] reads
+            // call, but we're expecting only a single argument, this would be a good place to put validation
             methodGenerator.Emit(OpCodes.Call, typeof(Evaluation).GetMethod(methodName)!.MakeGenericMethod(typeof(T)));
             methodGenerator.Emit(OpCodes.Stloc_0);
         }
 
         void EmitInvokeBinaryOperation(string methodName)
         {
-            // call with Span<T>, pushed results of variables[a] and variables[b] reads
+            // call, but we're expecting two arguments, this would be a good place to put validation
             methodGenerator.Emit(OpCodes.Call, typeof(Evaluation).GetMethod(methodName)!.MakeGenericMethod(typeof(T)));
             methodGenerator.Emit(OpCodes.Stloc_0);
         }
@@ -967,6 +950,7 @@ internal static class Interpreter
 
         if (shouldCompileInnerLoop)
         {
+            // invoke the compilation before we go into the parallel context, considerably less fucked
             Compiler.Compile<T>(evaluationInstructions);
         }
 
