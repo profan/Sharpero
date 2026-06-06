@@ -974,7 +974,7 @@ internal static class Interpreter
 
         if (shouldCompileInnerLoop)
         {
-            // invoke the compilation before we go into the parallel context, considerably less fucked
+            // invoke the compilation before we go into the parallel context, if we haven't already
             Compiler.Compile<T>(evaluationInstructions);
         }
 
