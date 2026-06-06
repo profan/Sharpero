@@ -804,17 +804,10 @@ internal static class Compiler
             methodGenerator.Emit(OpCodes.Stloc_0);
         }
 
-        void EmitReadVariablesB(Operand b)
+        void EmitReadVariable(Operand v)
         {
             methodGenerator.Emit(OpCodes.Ldarg_0); // Span<T>
-            methodGenerator.Emit(OpCodes.Ldc_I4, b); // b
-            methodGenerator.Emit(OpCodes.Call, typeof(Evaluation).GetMethod(nameof(Evaluation.Read))!.MakeGenericMethod(typeof(T)));
-        }
-
-        void EmitReadVariablesA(Operand a)
-        {
-            methodGenerator.Emit(OpCodes.Ldarg_0); // Span<T>
-            methodGenerator.Emit(OpCodes.Ldc_I4, a); // a
+            methodGenerator.Emit(OpCodes.Ldc_I4, v); // variable offset
             methodGenerator.Emit(OpCodes.Call, typeof(Evaluation).GetMethod(nameof(Evaluation.Read))!.MakeGenericMethod(typeof(T)));
         }
 
@@ -832,8 +825,8 @@ internal static class Compiler
             
             case { OpCode: OpCode.Add, A: { IsConstant: false } a, B: { IsConstant: false } b }: // => Add(variables[a], variables[b]),
                 
-                EmitReadVariablesA(a);
-                EmitReadVariablesB(b);
+                EmitReadVariable(a);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Add));
                 EmitWrite(instruction.Out);
                 break;
@@ -841,14 +834,14 @@ internal static class Compiler
             case { OpCode: OpCode.Add, A.IsConstant: true, B: { IsConstant: false } b }: // => Add(EvaluateConstant<T>(instruction.C), variables[b]),
                 
                 EmitReadConstant(instruction.C);
-                EmitReadVariablesB(b);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Add));
                 EmitWrite(instruction.Out);
                 break;
             
             case { OpCode: OpCode.Add, A: { IsConstant: false } a, B.IsConstant: true }: // => Add(variables[a], EvaluateConstant<T>(instruction.C)),
                
-                EmitReadVariablesA(a);
+                EmitReadVariable(a);
                 EmitReadConstant(instruction.C);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Add));
                 EmitWrite(instruction.Out);
@@ -856,8 +849,8 @@ internal static class Compiler
             
             case { OpCode: OpCode.Sub, A: { IsConstant: false } a, B: { IsConstant: false } b }: // => Sub(variables[a], variables[b]),
                 
-                EmitReadVariablesA(a);
-                EmitReadVariablesB(b);
+                EmitReadVariable(a);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Sub));
                 EmitWrite(instruction.Out);
                 break;
@@ -865,14 +858,14 @@ internal static class Compiler
             case { OpCode: OpCode.Sub, A.IsConstant: true, B: { IsConstant: false } b }: // => Sub(EvaluateConstant<T>(instruction.C), variables[b]),
                
                 EmitReadConstant(instruction.C);
-                EmitReadVariablesB(b);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Sub));
                 EmitWrite(instruction.Out);
                 break;
             
             case { OpCode: OpCode.Sub, A: { IsConstant: false } a, B.IsConstant: true }: // => Sub(variables[a], EvaluateConstant<T>(instruction.C)),
                
-                EmitReadVariablesA(a);
+                EmitReadVariable(a);
                 EmitReadConstant(instruction.C);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Sub));
                 EmitWrite(instruction.Out);
@@ -880,8 +873,8 @@ internal static class Compiler
             
             case { OpCode: OpCode.Mul, A: { IsConstant: false } a, B: { IsConstant: false } b }: // => Mul(variables[a], variables[b]),
                
-                EmitReadVariablesA(a);
-                EmitReadVariablesB(b); 
+                EmitReadVariable(a);
+                EmitReadVariable(b); 
                 EmitInvokeBinaryOperation(nameof(Evaluation.Mul));
                 EmitWrite(instruction.Out);
                 break;
@@ -889,14 +882,14 @@ internal static class Compiler
             case { OpCode: OpCode.Mul, A.IsConstant: true, B: { IsConstant: false } b }: // => Mul(EvaluateConstant<T>(instruction.C), variables[b]),
                 
                 EmitReadConstant(instruction.C);
-                EmitReadVariablesB(b);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Mul));
                 EmitWrite(instruction.Out);
                 break;
             
             case { OpCode: OpCode.Mul, A: { IsConstant: false } a, B.IsConstant: true }: // => Mul(variables[a], EvaluateConstant<T>(instruction.C)),
                 
-                EmitReadVariablesA(a);
+                EmitReadVariable(a);
                 EmitReadConstant(instruction.C);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Mul));
                 EmitWrite(instruction.Out); 
@@ -904,37 +897,37 @@ internal static class Compiler
             
             case { OpCode: OpCode.Max, A: var a, B: var b }: // => Max(variables[a], variables[b]),
                
-                EmitReadVariablesA(a);
-                EmitReadVariablesB(b);
+                EmitReadVariable(a);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Max));
                 EmitWrite(instruction.Out);
                 break;
             
             case { OpCode: OpCode.Min, A: var a, B: var b }: // => Min(variables[a], variables[b]),
                 
-                EmitReadVariablesA(a);
-                EmitReadVariablesB(b);
+                EmitReadVariable(a);
+                EmitReadVariable(b);
                 EmitInvokeBinaryOperation(nameof(Evaluation.Min));
                 EmitWrite(instruction.Out);
                 break;               
             
             case { OpCode: OpCode.Neg, A: var a }: // => Neg(variables[a]),
                
-                EmitReadVariablesA(a);
+                EmitReadVariable(a);
                 EmitInvokeUnaryOperation(nameof(Evaluation.Neg));
                 EmitWrite(instruction.Out);
                 break;
             
             case { OpCode: OpCode.Sqrt, A: var a }: // => SquareRoot(variables[a]),
                 
-                EmitReadVariablesA(a);
+                EmitReadVariable(a);
                 EmitInvokeUnaryOperation(nameof(Evaluation.SquareRoot));
                 EmitWrite(instruction.Out);
                 break;
             
             case { OpCode: OpCode.Square, A: var a }: // => Square(variables[a]),
                 
-                EmitReadVariablesA(a);
+                EmitReadVariable(a);
                 EmitInvokeUnaryOperation(nameof(Evaluation.Square));
                 EmitWrite(instruction.Out);
                 break;
