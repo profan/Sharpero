@@ -694,6 +694,9 @@ internal static class Compiler
 
         lock (CompilerCache<T>.CachedPrograms)
         {
+            // this number is derived very scientifically, on our sample program, this gives us about a kilobyte of IL
+            // for each function that we output into our function-of-functions that we eventually evaluate,
+            // and the JIT generally seems quite a lot happier to deal with smaller functions
             int maximumInstructionsPerChunk = 32;
                 
             Stopwatch totalSw = Stopwatch.StartNew();
