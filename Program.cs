@@ -100,7 +100,7 @@ void Main()
             shouldEvaluate = false;
         }
 
-        if (shouldRecompile)
+        if (shouldRecompile && !isEvaluating)
         {
             Compiler.CompilerCache<Vector<float>>.CachedPrograms.Clear();
             Compiler.CompilerCache<float>.CachedPrograms.Clear();
@@ -169,7 +169,7 @@ void Main()
             double nanoSecondsPerPixel = evaluationTimeNanoSeconds / (currentOutputImageSize * currentOutputImageSize);
             Raylib.DrawText(
                 shouldUseCompiler
-                    ? $" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel) (compilation: {lastCompilationTimeTook:0.0} s)"
+                    ? $" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel) (compilation: {lastCompilationTimeTook:0.0} s{(shouldRecompile ? " (pending)" : string.Empty)})"
                     : $" - evaluation took: {lastEvaluationTimeTook:0.0} s ({nanoSecondsPerPixel:0.0} ns / pixel)", 12,
                 52, 20, Color.White);
         }
@@ -204,6 +204,7 @@ void Main()
         if (Raylib.IsKeyPressed(KeyboardKey.C))
         {
             shouldUseCompiler = !shouldUseCompiler;
+            shouldRecompile = shouldUseCompiler;
             if (shouldUseCompiler)
             {
                 shouldRecompile = true;
@@ -1003,7 +1004,7 @@ internal static class Interpreter
             }
 
             T results = shouldCompileInnerLoop
-                ? EvaluateCompiled(evaluationInstructions,GetValues<T>(xs), GetValues<T>(ys))
+                ? EvaluateCompiled(evaluationInstructions, GetValues<T>(xs), GetValues<T>(ys))
                 : EvaluateInterpreted(evaluationInstructions, GetValues<T>(xs), GetValues<T>(ys));
             
             for (int idx = 0; idx < chunkSize; ++idx)
@@ -1021,7 +1022,6 @@ internal static class Interpreter
     public static T EvaluateCompiled<T>(EvaluationInstructions evaluationInstructions, T xs, T ys)
         where T : unmanaged
     {
-        // #TODO: this construction is just a little bit unhinged lol
         Span<T> variables = stackalloc T[evaluationInstructions.Instructions.Length];
        
         // compile if we've not already cached this instruction set, and evaluate!
@@ -1034,7 +1034,6 @@ internal static class Interpreter
     public static T EvaluateInterpreted<T>(EvaluationInstructions evaluationInstructions, T xs, T ys)
         where T : unmanaged 
     {
-        // #TODO: this construction is just a little bit unhinged lol
         Span<T> variables = stackalloc T[evaluationInstructions.Instructions.Length];
         
         foreach (ref Instruction instruction in evaluationInstructions.Instructions.AsSpan())
