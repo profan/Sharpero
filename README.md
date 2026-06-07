@@ -10,7 +10,7 @@ This program is also an interactive visualizer of the rendering process, allowin
 
 # How do I run it?
 
-You'll need .NET 10, with `dotnet run -c Release` that should be all you need for it to fetch all of its dependencies and run.
+You'll need .NET 10, with `dotnet run -c Release` that should be all you need.
 
 The only dependencies are RayLib-Cs (for the interactivity) and SkiaSharp (for writing out the image).
 
