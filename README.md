@@ -55,7 +55,7 @@ You'll need .NET 10, with `dotnet run -c Release` that should be all you need.
 
 The only dependencies are RayLib-Cs (for the interactivity) and SkiaSharp (for writing out the image).
 
-# (Crude) Benchmark Results
+# (Crude) Benchmark Results (1024x1024 image)
 
 On my own machine (CPU: Ryzen 7 4800HS), the results tabulate roughly as follows.
 
