@@ -6,9 +6,10 @@ It doesn't perform any sophisticated interval-arithmetic based optimizations (..
 
 This program is also an interactive visualizer of the rendering process, allowing you to see exactly how it's writing the image data out, and toggle vectorization, parallel execution, compilation on/off and observe the effects on runtime.
 
+# (Crude) Benchmark Results
+
 On my own machine (CPU: Ryzen 7 4800HS), the results tabulate roughly as follows.
 
-# (Crude) Benchmark Results
 | Compilation | Parallelism | Vectorization | Evaluation Time | Compilation Time |
 |-------------|-------------|---------------|-----------------|------------------|
 | enabled     | enabled     | enabled       | 0.2s            | 0.2s             |
