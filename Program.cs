@@ -330,14 +330,30 @@ internal static class Parsing
     
     public static EvaluationInstructions Parse(string filename)
     {
-        var identifiers = new Dictionary<string, Operand>();
+        // parse all identifiers first, so we know which are directly associated with constant values
+        Dictionary<string, Operand> identifiers = ParseIdentifiers(filename);
+
+        // now parse instructions, correctly tagging operands that operate directly on constants
+        List<Instruction> instructions = ParseInstructions(filename, identifiers);
+
+        // eliminate any constants from the tape, folding them into the instruction operands instead
+        (int totalNumberOfInstructions, int numberOfRemovedInstructions) = EliminateConstants(instructions);
+        Console.WriteLine($"Sharpero eliminated {numberOfRemovedInstructions} constants from tape, {(float)numberOfRemovedInstructions / totalNumberOfInstructions * 100.0f:0.0} % of total");
+
+        return new EvaluationInstructions(instructions.ToArray());
+    }
+
+    private static Dictionary<string, Operand> ParseIdentifiers(string filename)
+    {
+        Dictionary<string, Operand> identifiers = [];
+
         foreach (string line in File.ReadAllLines(filename))
         {
             if (line.StartsWith('#'))
             {
                 continue;
             }
-            
+
             switch (line.Split(" "))
             {
                 case [{ } @out, "const", not null]:
@@ -358,19 +374,25 @@ internal static class Parsing
             }
         }
 
+        return identifiers;
+    }
+
+    private static List<Instruction> ParseInstructions(string filename, Dictionary<string, Operand> identifiers)
+    {
         List<Instruction> instructions = [];
+        
         foreach (string line in File.ReadAllLines(filename))
         {
             if (line.StartsWith('#'))
             {
                 continue;
             }
-            
+
             Instruction? parsedInstruction = line.Split(" ") switch
             {
                 [{ } @out, "var-x"] => new Instruction(identifiers[@out], OpCode.VarX),
                 [{ } @out, "var-y"] => new Instruction(identifiers[@out], OpCode.VarY),
-                [{ } @out, "const", { } v]=> new Instruction(identifiers[@out], OpCode.Const, C: float.Parse(v, CultureInfo.InvariantCulture)),
+                [{ } @out, "const", { } v] => new Instruction(identifiers[@out], OpCode.Const, C: float.Parse(v, CultureInfo.InvariantCulture)),
                 [{ } @out, "add", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Add, identifiers[a], identifiers[b]),
                 [{ } @out, "sub", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Sub, identifiers[a], identifiers[b]),
                 [{ } @out, "mul", { } a, { } b] => new Instruction(identifiers[@out], OpCode.Mul, identifiers[a], identifiers[b]),
@@ -388,81 +410,78 @@ internal static class Parsing
             }
         }
 
-        bool shouldEliminateConstants = true;
+        return instructions;
+    }
 
-        if (shouldEliminateConstants)
+    private static (int TotalInstructions, int NumberOfRemovedInstructions) EliminateConstants(List<Instruction> instructions)
+    {
+        // handle constant propagation, eliminating all constants from the instruction stream and merging them
+        foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
         {
-            // handle constant propagation, eliminating all constants from the instruction stream and merging them
-            foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
+            switch (instruction.OpCode)
             {
-                switch (instruction.OpCode)
-                {
-                    case (OpCode.Add or OpCode.Sub or OpCode.Mul) when instruction.A.IsConstant || instruction.B.IsConstant:
-                        switch (instruction)
-                        {
-                            case { A: { IsConstant: true } a, B.IsConstant: false }:
-                                instruction = instruction with { C = instructions[a].C };
-                                break;
-                            case { A.IsConstant: false, B: { IsConstant: true } b }:
-                                instruction = instruction with { C = instructions[b].C };
-                                break;
-                            case { OpCode: var opCode, A: { IsConstant: true } a, B: { IsConstant: true } b }:
-                                instruction = instruction with { C = EvaluateExpression(opCode, instructions[a].C, instructions[b].C) };
-                                break;
-                            case { A.IsConstant: false, B.IsConstant: false }:
-                                break;
-                        }
-                        break;
-                }
+                case OpCode.Add or OpCode.Sub or OpCode.Mul when instruction.A.IsConstant || instruction.B.IsConstant:
+                    switch (instruction)
+                    {
+                        case { A: { IsConstant: true } a, B.IsConstant: false }:
+                            instruction = instruction with { C = instructions[a].C };
+                            break;
+                        case { A.IsConstant: false, B: { IsConstant: true } b }:
+                            instruction = instruction with { C = instructions[b].C };
+                            break;
+                        case { OpCode: var opCode, A: { IsConstant: true } a, B: { IsConstant: true } b }:
+                            instruction = instruction with { C = EvaluateExpression(opCode, instructions[a].C, instructions[b].C) };
+                            break;
+                        case { A.IsConstant: false, B.IsConstant: false }:
+                            break;
+                    }
+                    break;
             }
-
-            // relocate all offsets, now that we've nuked all the constants
-            foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
-            {
-                switch (instruction.OpCode)
-                {
-                    case OpCode.Const:
-                        int offset = instruction.Out;
-                        foreach (ref Instruction otherInstruction in CollectionsMarshal.AsSpan(instructions))
-                        {
-                            int newOperandOut = otherInstruction.Out >= offset
-                                ? otherInstruction.Out - 1
-                                : otherInstruction.Out;
-                            
-                            int newOperandA = otherInstruction.A >= offset
-                                ? otherInstruction.A - 1
-                                : otherInstruction.A;
-
-                            int newOperandB = otherInstruction.B >= offset
-                                ? otherInstruction.B - 1
-                                : otherInstruction.B;
-
-                            if (newOperandOut == otherInstruction.Out
-                                && newOperandA == otherInstruction.A
-                                && newOperandB == otherInstruction.B)
-                            {
-                                continue;
-                            }
-
-                            otherInstruction = otherInstruction with
-                            {
-                                Out = new Operand(newOperandOut),
-                                A = new Operand(newOperandA, isConstant: otherInstruction.A.IsConstant),
-                                B = new Operand(newOperandB, isConstant: otherInstruction.B.IsConstant),
-                            };
-                        }
-                        break;
-                }
-            }
-
-            // eliminate all constants now :)
-            int totalNumberOfInstructions = instructions.Count;
-            int numberOfRemovedInstructions = instructions.RemoveAll(i => i.OpCode == OpCode.Const);
-            Console.WriteLine($"Sharpero eliminated {numberOfRemovedInstructions} constants from tape, {(float)numberOfRemovedInstructions / totalNumberOfInstructions * 100.0f:0.0} % of total");
         }
 
-        return new EvaluationInstructions(instructions.ToArray());
-    }   
+        // relocate all offsets, now that we've nuked all the constants
+        foreach (ref Instruction instruction in CollectionsMarshal.AsSpan(instructions))
+        {
+            switch (instruction.OpCode)
+            {
+                case OpCode.Const:
+                    int offset = instruction.Out;
+                    foreach (ref Instruction otherInstruction in CollectionsMarshal.AsSpan(instructions))
+                    {
+                        int newOperandOut = otherInstruction.Out >= offset
+                            ? otherInstruction.Out - 1
+                            : otherInstruction.Out;
+
+                        int newOperandA = otherInstruction.A >= offset
+                            ? otherInstruction.A - 1
+                            : otherInstruction.A;
+
+                        int newOperandB = otherInstruction.B >= offset
+                            ? otherInstruction.B - 1
+                            : otherInstruction.B;
+
+                        if (newOperandOut == otherInstruction.Out
+                            && newOperandA == otherInstruction.A
+                            && newOperandB == otherInstruction.B)
+                        {
+                            continue;
+                        }
+
+                        otherInstruction = otherInstruction with
+                        {
+                            Out = new Operand(newOperandOut),
+                            A = new Operand(newOperandA, isConstant: otherInstruction.A.IsConstant),
+                            B = new Operand(newOperandB, isConstant: otherInstruction.B.IsConstant),
+                        };
+                    }
+                    break;
+            }
+        }
+
+        int totalNumberOfInstructions = instructions.Count;
+        int numberOfRemovedInstructions = instructions.RemoveAll(i => i.OpCode == OpCode.Const);
+        return (TotalInstructions: totalNumberOfInstructions, NumberOfRemovedInstructions: numberOfRemovedInstructions);
+    }
 }
 
 [Flags]

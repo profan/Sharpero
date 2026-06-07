@@ -1,0 +1,20 @@
+Sharpero
+----------
+This is an implementation of an Interpreter/Compiler for the [Prospero](https://www.mattkeeter.com/projects/prospero/) challenge, implementing some basic optimizations including removing constants from the instruction tape, vectorization, parallelization but also optionally compiling the loop of the evaluator to [CIL](https://en.wikipedia.org/wiki/Common_Intermediate_Language) prior to invocation.
+
+It doesn't perform any sophisticated interval-arithmetic based optimizations (... yet), it's essentially a brute-force approach.
+
+This program is also an interactive visualizer of the rendering process, allowing you to see exactly how it's writing the image data out, and toggle vectorization, parallel execution, compilation on/off and observe the effects on runtime.
+
+On my own machine (CPU: Ryzen 7 4800HS), the results tabulate roughly as follows.
+
+# (Crude) Benchmark Results
+| Compilation | Parallelism | Vectorization | Evaluation Time | Compilation Time |
+|-------------|-------------|---------------|-----------------|------------------|
+| enabled     | enabled     | enabled       | 0.2s            | 0.2s             |
+| enabled     | enabled     | disabled      | 1.3s            | 0.2s             |
+| enabled     | disabled    | enabled       | 1.7s            | 0.2s             |
+| enabled     | disabled    | disabled      | 10s             | 0.2s             |
+| disabled    | enabled     | enabled       | 0.7s            | N/A              |
+| disabled    | enabled     | disabled      | 5.0s            | N/A              |
+| disabled    | disabled    | disabled      | 48s             | N/A              |
