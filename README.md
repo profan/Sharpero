@@ -6,6 +6,18 @@ It doesn't perform any sophisticated interval-arithmetic based optimizations (..
 
 This program is also an interactive visualizer of the rendering process, allowing you to see exactly how it's writing the image data out, and toggle vectorization, parallel execution, compilation on/off and observe the effects on runtime.
 
+# Interesting Things
+When attempting to compile the inner loop (flattening the instructions into a big C# function) I ran into limits where making functions too large made the JIT quite unhappy (either because it physically refuses to make functions with more than 65 kilobytes of CIL), or because it simply performed quite poorly when jitting large functions, so I ended up with an experimentally derived "max instructions per chunk" which ends up splitting the generated inner loop into a number of subfunctions, as many subfunctions as are needed, and the final program ends up being something like:
+```cs
+  void EvaluateLoop()
+  {
+    EvaluateChunk1();
+    EvaluateChunk2();
+    EvaluateChunk3();
+    // ... etc, with the current program and chunk size, this ends up being about 200 of these subprograms being generated
+  }
+```
+
 ![The Application, in its 1024x1024 window](sharpero.png)
 
 # How do I run it?
