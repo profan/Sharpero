@@ -3,6 +3,7 @@ Sharpero
 This is an implementation of an Interpreter/Compiler for the [Prospero](https://www.mattkeeter.com/projects/prospero/) challenge, implementing some basic optimizations including removing constants from the instruction tape, vectorization, parallelization but also optionally compiling the loop of the evaluator to [CIL](https://en.wikipedia.org/wiki/Common_Intermediate_Language) prior to invocation.
 
 It doesn't perform any sophisticated interval-arithmetic based optimizations (... yet), it's essentially a brute-force approach.
+
 This program is also an interactive visualizer of the rendering process, allowing you to see exactly how it's writing the image data out, and toggle vectorization, parallel execution, compilation on/off and observe the effects on runtime.
 
 ![The Application, in its 1024x1024 window](sharpero.png)
