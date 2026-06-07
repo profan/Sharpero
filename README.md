@@ -69,6 +69,9 @@ On my own machine (CPU: Ryzen 7 4800HS), the results tabulate roughly as follows
 | disabled    | enabled     | disabled      | 5.0s            | N/A              |
 | disabled    | disabled    | disabled      | 48s             | N/A              |
 
+# Funny Things
+Currently because we're obviously leaning on the blessings of the JIT, you tend to reach (sorta) steady state performance only after running it once or twice once it has properly compiled the incredible pile of generic functions it needs to JIT, until then you might find it runs about double bas slow as you'd expect it to, and lets not talk about `Debug` performance, run it in `Release` for all that is holy.
+
 # Recommendations
 Probably don't use this with some kind of agentic LLM workflow, bad things might happen :)
 
