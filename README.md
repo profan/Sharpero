@@ -7,6 +7,8 @@ It doesn't perform any sophisticated interval-arithmetic based optimizations (..
 This program is also an interactive visualizer of the rendering process, allowing you to see exactly how it's writing the image data out, and toggle vectorization, parallel execution, compilation on/off and observe the effects on runtime.
 
 # Interesting Things
+
+## Compilation to CIL
 When attempting to compile the inner loop (flattening the instructions into a big C# function) I ran into limits where making functions too large made the JIT quite unhappy (either because it physically refuses to make functions with more than 65 kilobytes of CIL), or because it simply performed quite poorly when jitting large functions, so I ended up with an experimentally derived "max instructions per chunk" which ends up splitting the generated inner loop into a number of subfunctions, as many subfunctions as are needed, and the final program ends up being something like:
 ```cs
 void EvaluateLoop()
@@ -17,6 +19,31 @@ void EvaluateLoop()
     // ... etc, with the current program and chunk size, this ends up being about 200 of these subprograms being generated
 }
 ```
+
+## RyuJIT Implementation Details
+When the C# JIT observes a pattern like this:
+```cs
+
+[MethodImpl(MethodImplOptions.AggressiveInlining)]
+public static T Add<T>(T a, T b)
+    where T : unmanaged
+{
+    if (typeof(T) == typeof(float))
+    {
+        return Unsafe.BitCast<float, T>(Unsafe.As<T, float>(ref a) + Unsafe.As<T, float>(ref b));
+    }
+    else if (typeof(T) == typeof(Vector<float>))
+    {
+        return Unsafe.BitCast<Vector<float>, T>(Unsafe.As<T, Vector<float>>(ref a) + Unsafe.As<T, Vector<float>>(ref b));
+    }
+    else
+    {
+        throw new InvalidOperationException();
+    }
+}
+```
+... which to the normal C# eye would seem like you'd end up with a runtime branch every time this runs right?
+However because C# JIT implementations (RyuJIT included) tend to monomorphize generics when T is a value type, we end up with different versions of this function, and whenever it compiles one of these functions where it branches over types and typeof(T) along with branching over types is a specific pattern the JIT recognises, we actually end up with a function without any branches after the JIT has compiled the function for us.
 
 # The Program
 ![The Application, in its 1024x1024 window](sharpero.png)
