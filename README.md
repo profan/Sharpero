@@ -18,3 +18,6 @@ On my own machine (CPU: Ryzen 7 4800HS), the results tabulate roughly as follows
 | disabled    | enabled     | enabled       | 0.7s            | N/A              |
 | disabled    | enabled     | disabled      | 5.0s            | N/A              |
 | disabled    | disabled    | disabled      | 48s             | N/A              |
+
+# License
+MIT/X11
