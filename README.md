@@ -42,9 +42,17 @@ public static T Add<T>(T a, T b)
 }
 ```
 ... which to the normal C# eye would seem like you'd end up with a runtime branch every time this runs right?
-However because C# JIT implementations (RyuJIT included) monomorphizes generics when T is a value type, we end up with different versions of this function, and whenever it compiles one of these functions where it branches over types and typeof(T) along with branching over types is a specific pattern the JIT recognises, we actually end up with a function without any branches after the JIT has compiled the function for us. Fun!
+
+However because C# JIT implementations (RyuJIT included) monomorphizes generics when T is a value type, we end up with different versions of this function, and whenever it compiles one of these functions where it branches over types and typeof(T) along with branching over types is a specific pattern the JIT recognises, we actually end up with a function without any branches after the JIT has compiled the function for us.
+
+Fun!
 
 ... Good for us, because I abused this pattern in this program in order to make it easy to toggle on/off vectorization!
+
+## SIMD in C#
+It turns out C# has really nice cross-platform SIMD support, and `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Matrix4x4` etc. types all automatically benefit from this.
+
+However, for our specific case we want to go as broad as we can, so if we've got 4 lanes, 8 lanes, etc on our given hardware, we'd like to utilize that best we can, and `Vector<T>` in C# it turns out [allows you to do exactly this](https://learn.microsoft.com/en-us/dotnet/standard/simd#vectort), huge props to the C# team for making it so simple.
 
 # The Program
 ![The Application, in its 1024x1024 window](sharpero.png)
